@@ -5,7 +5,7 @@ public class EmptyChunkNibbleArray extends ReadonlyChunkNibbleArray {
     }
 
     @Override
-    public byte[] asByteArray() {
+    public byte[] getData() {
         return new byte[2048];
     }
 }

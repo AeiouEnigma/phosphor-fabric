@@ -8,40 +8,36 @@ import me.jellysquid.mods.phosphor.common.util.math.ChunkSectionPosHelper;
 import me.jellysquid.mods.phosphor.common.util.math.DirectionHelper;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.util.Direction;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkSectionPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
+import net.minecraft.util.math.SectionPos;
+import net.minecraft.util.math.shapes.VoxelShape;
+import net.minecraft.util.math.shapes.VoxelShapes;
 import net.minecraft.world.LightType;
-import net.minecraft.world.chunk.ChunkNibbleArray;
-import net.minecraft.world.chunk.ChunkProvider;
-import net.minecraft.world.chunk.light.ChunkLightProvider;
-import net.minecraft.world.chunk.light.ChunkSkyLightProvider;
-import net.minecraft.world.chunk.light.SkyLightStorage;
-import org.spongepowered.asm.mixin.Final;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Overwrite;
-import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
+import net.minecraft.world.chunk.IChunkLightProvider;
+import net.minecraft.world.chunk.NibbleArray;
+import net.minecraft.world.lighting.LightEngine;
+import net.minecraft.world.lighting.SkyLightEngine;
+import net.minecraft.world.lighting.SkyLightStorage;
+import org.spongepowered.asm.mixin.*;
 
-import static net.minecraft.util.math.ChunkSectionPos.getLocalCoord;
-import static net.minecraft.util.math.ChunkSectionPos.getSectionCoord;
+import static net.minecraft.util.math.SectionPos.mask;
+import static net.minecraft.util.math.SectionPos.toChunk;
 
-@Mixin(ChunkSkyLightProvider.class)
-public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyLightStorage.Data, SkyLightStorage>
+@Mixin(SkyLightEngine.class)
+public abstract class MixinChunkSkyLightProvider extends LightEngine<SkyLightStorage.StorageMap, SkyLightStorage>
         implements LevelPropagatorExtended, LightProviderBlockAccess {
     private static final BlockState AIR_BLOCK = Blocks.AIR.getDefaultState();
 
     @Shadow
     @Final
-    private static Direction[] HORIZONTAL_DIRECTIONS;
+    private static Direction[] CARDINALS;
 
     @Shadow
     @Final
     private static Direction[] DIRECTIONS;
 
-    public MixinChunkSkyLightProvider(ChunkProvider chunkProvider, LightType type, SkyLightStorage lightStorage) {
+    public MixinChunkSkyLightProvider(IChunkLightProvider chunkProvider, LightType type, SkyLightStorage lightStorage) {
         super(chunkProvider, type, lightStorage);
     }
 
@@ -51,7 +47,7 @@ public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyL
      */
     @Override
     @Overwrite
-    public int getPropagatedLevel(long fromId, long toId, int currentLevel) {
+    public int getEdgeLevel(long fromId, long toId, int currentLevel) {
         return this.getPropagatedLevel(fromId, null, toId, currentLevel);
     }
 
@@ -85,9 +81,9 @@ public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyL
             return currentLevel;
         }
 
-        int toX = BlockPos.unpackLongX(toId);
-        int toY = BlockPos.unpackLongY(toId);
-        int toZ = BlockPos.unpackLongZ(toId);
+        int toX = BlockPos.unpackX(toId);
+        int toY = BlockPos.unpackY(toId);
+        int toZ = BlockPos.unpackZ(toId);
 
         BlockState toState = this.getBlockStateForLighting(toX, toY, toZ);
 
@@ -95,9 +91,9 @@ public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyL
             return 15;
         }
 
-        int fromX = BlockPos.unpackLongX(fromId);
-        int fromY = BlockPos.unpackLongY(fromId);
-        int fromZ = BlockPos.unpackLongZ(fromId);
+        int fromX = BlockPos.unpackX(fromId);
+        int fromY = BlockPos.unpackY(fromId);
+        int fromZ = BlockPos.unpackZ(fromId);
 
         if (fromState == null) {
             fromState = this.getBlockStateForLighting(fromX, fromY, fromZ);
@@ -156,65 +152,65 @@ public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyL
      */
     @Override
     @Overwrite
-    public void propagateLevel(long id, int targetLevel, boolean mergeAsMin) {
-        long chunkId = ChunkSectionPos.fromBlockPos(id);
+    public void notifyNeighbors(long id, int targetLevel, boolean mergeAsMin) {
+        long chunkId = SectionPos.worldToSection(id);
 
-        int x = BlockPos.unpackLongX(id);
-        int y = BlockPos.unpackLongY(id);
-        int z = BlockPos.unpackLongZ(id);
+        int x = BlockPos.unpackX(id);
+        int y = BlockPos.unpackY(id);
+        int z = BlockPos.unpackZ(id);
 
-        int localX = getLocalCoord(x);
-        int localY = getLocalCoord(y);
-        int localZ = getLocalCoord(z);
+        int localX = mask(x);
+        int localY = mask(y);
+        int localZ = mask(z);
 
         BlockState fromState = this.getBlockStateForLighting(x, y, z);
 
         // Fast-path: Use much simpler logic if we do not need to access adjacent chunks
         if (localX > 0 && localX < 15 && localY > 0 && localY < 15 && localZ > 0 && localZ < 15) {
             for (Direction dir : DIRECTIONS) {
-                this.propagateLevel(id, fromState, BlockPos.asLong(x + dir.getOffsetX(), y + dir.getOffsetY(), z + dir.getOffsetZ()), targetLevel, mergeAsMin);
+                this.propagateLevel(id, fromState, BlockPos.pack(x + dir.getXOffset(), y + dir.getYOffset(), z + dir.getZOffset()), targetLevel, mergeAsMin);
             }
 
             return;
         }
 
-        int chunkY = getSectionCoord(y);
+        int chunkY = toChunk(y);
         int chunkOffsetY = 0;
 
         // Skylight optimization: Try to find bottom-most non-empty chunk
         if (localY == 0) {
-            while (!this.lightStorage.hasSection(ChunkSectionPos.offset(chunkId, 0, -chunkOffsetY - 1, 0))
-                    && this.lightStorage.isAboveMinHeight(chunkY - chunkOffsetY - 1)) {
+            while (!this.storage.hasSection(SectionPos.withOffset(chunkId, 0, -chunkOffsetY - 1, 0))
+                    && this.storage.isAboveBottom(chunkY - chunkOffsetY - 1)) {
                 ++chunkOffsetY;
             }
         }
 
         int belowY = y + (-1 - chunkOffsetY * 16);
-        int belowChunkY = getSectionCoord(belowY);
+        int belowChunkY = toChunk(belowY);
 
-        if (chunkY == belowChunkY || this.lightStorage.hasSection(ChunkSectionPosHelper.updateYLong(chunkId, belowChunkY))) {
+        if (chunkY == belowChunkY || this.storage.hasSection(ChunkSectionPosHelper.updateYLong(chunkId, belowChunkY))) {
             // MC-196542: Pass adjacent source position
             BlockState state = chunkY == belowChunkY ? fromState : AIR_BLOCK;
-            this.propagateLevel(BlockPos.asLong(x, belowY + 1, z), state, BlockPos.asLong(x, belowY, z), targetLevel, mergeAsMin);
+            this.propagateLevel(BlockPos.pack(x, belowY + 1, z), state, BlockPos.pack(x, belowY, z), targetLevel, mergeAsMin);
         }
 
         int aboveY = y + 1;
-        int aboveChunkY = getSectionCoord(aboveY);
+        int aboveChunkY = toChunk(aboveY);
 
-        if (chunkY == aboveChunkY || this.lightStorage.hasSection(ChunkSectionPosHelper.updateYLong(chunkId, aboveChunkY))) {
-            this.propagateLevel(id, fromState, BlockPos.asLong(x, aboveY, z), targetLevel, mergeAsMin);
+        if (chunkY == aboveChunkY || this.storage.hasSection(ChunkSectionPosHelper.updateYLong(chunkId, aboveChunkY))) {
+            this.propagateLevel(id, fromState, BlockPos.pack(x, aboveY, z), targetLevel, mergeAsMin);
         }
 
-        for (Direction dir : HORIZONTAL_DIRECTIONS) {
-            int adjX = x + dir.getOffsetX();
-            int adjZ = z + dir.getOffsetZ();
+        for (Direction dir : CARDINALS) {
+            int adjX = x + dir.getXOffset();
+            int adjZ = z + dir.getZOffset();
 
-            long offsetId = BlockPos.asLong(adjX, y, adjZ);
-            long offsetChunkId = ChunkSectionPos.fromBlockPos(offsetId);
+            long offsetId = BlockPos.pack(adjX, y, adjZ);
+            long offsetChunkId = SectionPos.worldToSection(offsetId);
 
             boolean isWithinOriginChunk = chunkId == offsetChunkId;
 
-            if (isWithinOriginChunk || this.lightStorage.hasSection(offsetChunkId)) {
+            if (isWithinOriginChunk || this.storage.hasSection(offsetChunkId)) {
                 this.propagateLevel(id, fromState, offsetId, targetLevel, mergeAsMin);
             }
 
@@ -224,16 +220,16 @@ public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyL
 
             // MC-196542: First iterate over sections to reduce map lookups
             for (int offsetChunkY = chunkY - 1; offsetChunkY > belowChunkY; --offsetChunkY) {
-                if (!this.lightStorage.hasSection(ChunkSectionPosHelper.updateYLong(offsetChunkId, offsetChunkY))) {
+                if (!this.storage.hasSection(ChunkSectionPosHelper.updateYLong(offsetChunkId, offsetChunkY))) {
                     continue;
                 }
 
                 for (int offsetY = 15; offsetY >= 0; --offsetY) {
-                    int adjY = ChunkSectionPos.getBlockCoord(offsetChunkY) + offsetY;
-                    offsetId = BlockPos.asLong(adjX, adjY, adjZ);
+                    int adjY = SectionPos.toWorld(offsetChunkY) + offsetY;
+                    offsetId = BlockPos.pack(adjX, adjY, adjZ);
 
                     // MC-196542: Pass adjacent source position
-                    this.propagateLevel(BlockPos.asLong(x, adjY, z), AIR_BLOCK, offsetId, targetLevel, mergeAsMin);
+                    this.propagateLevel(BlockPos.pack(x, adjY, z), AIR_BLOCK, offsetId, targetLevel, mergeAsMin);
                 }
             }
         }
@@ -241,27 +237,27 @@ public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyL
 
     @Unique
     private int getLightWithoutLightmap(final long blockPos) {
-        return 15 - ((LightStorageAccess) this.lightStorage).getLightWithoutLightmap(blockPos);
+        return 15 - ((LightStorageAccess) this.storage).getLightWithoutLightmap(blockPos);
     }
 
     /**
      * This implements the cleanups discussed in MC-196542. In particular:
      * - The special handling of source-skylight is removed and is instead taken care of via ordinary propagation
      * - The logic for looking up light values without associated lightmap is now uniformly applied to all directions and moved to {@link LightStorageAccess#getLightWithoutLightmap(long)}
-     * - This passes adjacent positions to {@link #getPropagatedLevel(long, long, int)}
+     * - This passes adjacent positions to {@link #getEdgeLevel(long, long, int)}
      * - This fixes a bug when propagating direct skylight from horizontal neighbors
      *
      * @author PhiPro
      * @reason Implement MC-196542
      */
     @Overwrite
-    public int recalculateLevel(long id, long excludedId, int maxLevel) {
+    public int computeLevel(long id, long excludedId, int maxLevel) {
         int currentLevel = maxLevel;
 
         // MC-196542: Remove special handling of source-skylight
 
-        long chunkId = ChunkSectionPos.fromBlockPos(id);
-        ChunkNibbleArray lightmap = ((LightStorageAccess) this.lightStorage).callGetLightSection(chunkId, true);
+        long chunkId = SectionPos.worldToSection(id);
+        NibbleArray lightmap = ((LightStorageAccess) this.storage).callGetLightSection(chunkId, true);
 
         for(Direction direction : DIRECTIONS) {
             long adjId = BlockPos.offset(id, direction);
@@ -270,13 +266,13 @@ public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyL
                 continue;
             }
 
-            long adjChunkId = ChunkSectionPos.fromBlockPos(adjId);
+            long adjChunkId = SectionPos.worldToSection(adjId);
 
-            ChunkNibbleArray adjLightmap;
+            NibbleArray adjLightmap;
             if (chunkId == adjChunkId) {
                 adjLightmap = lightmap;
             } else {
-                adjLightmap = ((LightStorageAccess) this.lightStorage).callGetLightSection(adjChunkId, true);
+                adjLightmap = ((LightStorageAccess) this.storage).callGetLightSection(adjChunkId, true);
             }
 
             final int adjLevel;
@@ -285,11 +281,11 @@ public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyL
                 // MC-196542: Apply this lookup uniformly to all directions and move it into LightStorage
                 adjLevel = this.getLightWithoutLightmap(adjId);
             } else {
-                adjLevel = this.getCurrentLevelFromSection(adjLightmap, adjId);
+                adjLevel = this.getLevelFromArray(adjLightmap, adjId);
             }
 
             // MC-196542: Pass adjacent source position
-            int propagatedLevel = this.getPropagatedLevel(adjId, id, adjLevel);
+            int propagatedLevel = this.getEdgeLevel(adjId, id, adjLevel);
 
             if (currentLevel > propagatedLevel) {
                 currentLevel = propagatedLevel;
@@ -308,7 +304,7 @@ public abstract class MixinChunkSkyLightProvider extends ChunkLightProvider<SkyL
      * @reason MC-196542: There is no need to reset any level other than the directly requested position.
      */
     @Overwrite
-    public void resetLevel(long id) {
-        super.resetLevel(id);
+    public void scheduleUpdate(long id) {
+        super.scheduleUpdate(id);
     }
 }

@@ -1,7 +1,7 @@
 package me.jellysquid.mods.phosphor.common.chunk.light;
 
 import me.jellysquid.mods.phosphor.common.util.collections.DoubleBufferedLong2ObjectHashMap;
-import net.minecraft.world.chunk.ChunkNibbleArray;
+import net.minecraft.world.chunk.NibbleArray;
 
 public interface SharedNibbleArrayMap {
     /**
@@ -19,5 +19,5 @@ public interface SharedNibbleArrayMap {
     /**
      * Returns the queue of pending changes for this map.
      */
-    DoubleBufferedLong2ObjectHashMap<ChunkNibbleArray> getUpdateQueue();
+    DoubleBufferedLong2ObjectHashMap<NibbleArray> getUpdateQueue();
 }

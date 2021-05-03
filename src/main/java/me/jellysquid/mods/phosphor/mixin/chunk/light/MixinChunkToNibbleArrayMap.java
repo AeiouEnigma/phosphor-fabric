@@ -2,28 +2,31 @@ package me.jellysquid.mods.phosphor.mixin.chunk.light;
 
 import me.jellysquid.mods.phosphor.common.chunk.light.SharedNibbleArrayMap;
 import me.jellysquid.mods.phosphor.common.util.collections.DoubleBufferedLong2ObjectHashMap;
-import net.minecraft.world.chunk.ChunkNibbleArray;
-import net.minecraft.world.chunk.ChunkToNibbleArrayMap;
-import org.spongepowered.asm.mixin.*;
+import net.minecraft.world.chunk.NibbleArray;
+import net.minecraft.world.lighting.LightDataMap;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
 
 @SuppressWarnings("OverwriteModifiers")
-@Mixin(ChunkToNibbleArrayMap.class)
+@Mixin(LightDataMap.class)
 public abstract class MixinChunkToNibbleArrayMap implements SharedNibbleArrayMap {
     @Shadow
-    private boolean cacheEnabled;
+    private boolean useCaching;
 
     @Shadow
     @Final
-    private long[] cachePositions;
+    private long[] recentPositions;
 
     @Shadow
     @Final
-    private ChunkNibbleArray[] cacheArrays;
+    private NibbleArray[] recentArrays;
 
     @Shadow
-    public abstract void clearCache();
+    public abstract void invalidateCaches();
 
-    private DoubleBufferedLong2ObjectHashMap<ChunkNibbleArray> queue;
+    private DoubleBufferedLong2ObjectHashMap<NibbleArray> queue;
     private boolean isShared;
 
     /**
@@ -31,12 +34,12 @@ public abstract class MixinChunkToNibbleArrayMap implements SharedNibbleArrayMap
      * @author JellySquid
      */
     @Overwrite
-    public void replaceWithCopy(long pos) {
+    public void copyArray(long pos) {
         this.checkExclusiveOwner();
 
         this.queue.putSync(pos, this.queue.getSync(pos).copy());
 
-        this.clearCache();
+        this.invalidateCaches();
     }
 
     /**
@@ -44,14 +47,14 @@ public abstract class MixinChunkToNibbleArrayMap implements SharedNibbleArrayMap
      * @author JellySquid
      */
     @Overwrite
-    public ChunkNibbleArray get(long pos) {
-        if (this.cacheEnabled) {
+    public NibbleArray getArray(long pos) {
+        if (this.useCaching) {
             // Hoist array field access out of the loop to allow the JVM to drop bounds checks
-            long[] cachePositions = this.cachePositions;
+            long[] cachePositions = this.recentPositions;
 
             for(int i = 0; i < cachePositions.length; ++i) {
                 if (pos == cachePositions[i]) {
-                    return this.cacheArrays[i];
+                    return this.recentArrays[i];
                 }
             }
         }
@@ -60,8 +63,8 @@ public abstract class MixinChunkToNibbleArrayMap implements SharedNibbleArrayMap
         return this.getUncached(pos);
     }
 
-    private ChunkNibbleArray getUncached(long pos) {
-        ChunkNibbleArray array;
+    private NibbleArray getUncached(long pos) {
+        NibbleArray array;
 
         if (this.isShared) {
             array = this.queue.getAsync(pos);
@@ -73,9 +76,9 @@ public abstract class MixinChunkToNibbleArrayMap implements SharedNibbleArrayMap
             return null;
         }
 
-        if (this.cacheEnabled) {
-            long[] cachePositions = this.cachePositions;
-            ChunkNibbleArray[] cacheArrays = this.cacheArrays;
+        if (this.useCaching) {
+            long[] cachePositions = this.recentPositions;
+            NibbleArray[] cacheArrays = this.recentArrays;
 
             for(int i = cacheArrays.length - 1; i > 0; --i) {
                 cachePositions[i] = cachePositions[i - 1];
@@ -94,7 +97,7 @@ public abstract class MixinChunkToNibbleArrayMap implements SharedNibbleArrayMap
      * @author JellySquid
      */
     @Overwrite
-    public void put(long pos, ChunkNibbleArray data) {
+    public void setArray(long pos, NibbleArray data) {
         this.checkExclusiveOwner();
 
         this.queue.putSync(pos, data);
@@ -105,7 +108,7 @@ public abstract class MixinChunkToNibbleArrayMap implements SharedNibbleArrayMap
      * @author JellySquid
      */
     @Overwrite
-    public ChunkNibbleArray removeChunk(long chunkPos) {
+    public NibbleArray removeArray(long chunkPos) {
         this.checkExclusiveOwner();
 
         return this.queue.removeSync(chunkPos);
@@ -116,7 +119,7 @@ public abstract class MixinChunkToNibbleArrayMap implements SharedNibbleArrayMap
      * @author JellySquid
      */
     @Overwrite
-    public boolean containsKey(long chunkPos) {
+    public boolean hasArray(long chunkPos) {
         if (this.isShared) {
             return this.queue.getAsync(chunkPos) != null;
         } else {
@@ -135,7 +138,7 @@ public abstract class MixinChunkToNibbleArrayMap implements SharedNibbleArrayMap
     }
 
     @Override
-    public DoubleBufferedLong2ObjectHashMap<ChunkNibbleArray> getUpdateQueue() {
+    public DoubleBufferedLong2ObjectHashMap<NibbleArray> getUpdateQueue() {
         return this.queue;
     }
 

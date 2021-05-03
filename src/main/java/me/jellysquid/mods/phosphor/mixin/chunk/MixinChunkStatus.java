@@ -2,11 +2,11 @@ package me.jellysquid.mods.phosphor.mixin.chunk;
 
 import com.mojang.datafixers.util.Either;
 import me.jellysquid.mods.phosphor.common.chunk.light.ServerLightingProviderAccess;
-import net.minecraft.server.world.ChunkHolder;
-import net.minecraft.server.world.ServerLightingProvider;
-import net.minecraft.world.Heightmap;
-import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkStatus;
+import net.minecraft.world.chunk.IChunk;
+import net.minecraft.world.gen.Heightmap;
+import net.minecraft.world.server.ChunkHolder;
+import net.minecraft.world.server.ServerWorldLightManager;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -21,13 +21,13 @@ import java.util.concurrent.CompletableFuture;
 @Mixin(ChunkStatus.class)
 public class MixinChunkStatus {
     @Shadow
-    private static ChunkStatus register(String id, ChunkStatus previous, int taskMargin, EnumSet<Heightmap.Type> heightMapTypes, ChunkStatus.ChunkType chunkType, ChunkStatus.GenerationTask task, ChunkStatus.LoadTask noGenTask) {
+    private static ChunkStatus register(String id, ChunkStatus previous, int taskMargin, EnumSet<Heightmap.Type> heightMapTypes, ChunkStatus.Type chunkType, ChunkStatus.IGenerationWorker task, ChunkStatus.ILoadingWorker noGenTask) {
         return null;
     }
 
     @Shadow
     @Final
-    private static ChunkStatus.LoadTask STATUS_BUMP_LOAD_TASK;
+    private static ChunkStatus.ILoadingWorker NOOP_LOADING_WORKER;
 
     @Redirect(
         method = "<clinit>",
@@ -36,25 +36,25 @@ public class MixinChunkStatus {
         ),
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/world/chunk/ChunkStatus;register(Ljava/lang/String;Lnet/minecraft/world/chunk/ChunkStatus;ILjava/util/EnumSet;Lnet/minecraft/world/chunk/ChunkStatus$ChunkType;Lnet/minecraft/world/chunk/ChunkStatus$GenerationTask;)Lnet/minecraft/world/chunk/ChunkStatus;",
+            target = "Lnet/minecraft/world/chunk/ChunkStatus;register(Ljava/lang/String;Lnet/minecraft/world/chunk/ChunkStatus;ILjava/util/EnumSet;Lnet/minecraft/world/chunk/ChunkStatus$Type;Lnet/minecraft/world/chunk/ChunkStatus$IGenerationWorker;)Lnet/minecraft/world/chunk/ChunkStatus;",
             ordinal = 0
         )
     )
-    private static ChunkStatus injectLightmapSetup(final String id, final ChunkStatus previous, final int taskMargin, final EnumSet<Heightmap.Type> heightMapTypes, final ChunkStatus.ChunkType chunkType, final ChunkStatus.GenerationTask task) {
+    private static ChunkStatus injectLightmapSetup(final String id, final ChunkStatus previous, final int taskMargin, final EnumSet<Heightmap.Type> heightMapTypes, final ChunkStatus.Type chunkType, final ChunkStatus.IGenerationWorker task) {
         return register(id, previous, taskMargin, heightMapTypes, chunkType,
             (status, world, generator, structureManager, lightingProvider, function, surroundingChunks, chunk) ->
                 task.doWork(status, world, generator, structureManager, lightingProvider, function, surroundingChunks, chunk).thenCompose(
                     either -> getPreLightFuture(lightingProvider, either)
                 ),
             (status, world, structureManager, lightingProvider, function, chunk) ->
-                STATUS_BUMP_LOAD_TASK.doWork(status, world, structureManager, lightingProvider, function, chunk).thenCompose(
+                NOOP_LOADING_WORKER.doWork(status, world, structureManager, lightingProvider, function, chunk).thenCompose(
                     either -> getPreLightFuture(lightingProvider, either)
                 )
             );
     }
 
     @Unique
-    private static CompletableFuture<Either<Chunk, ChunkHolder.Unloaded>> getPreLightFuture(final ServerLightingProvider lightingProvider, final Either<Chunk, ChunkHolder.Unloaded> either) {
+    private static CompletableFuture<Either<IChunk, ChunkHolder.IChunkLoadingError>> getPreLightFuture(final ServerWorldLightManager lightingProvider, final Either<IChunk, ChunkHolder.IChunkLoadingError> either) {
         return either.map(
             chunk -> getPreLightFuture(lightingProvider, chunk),
             unloaded -> CompletableFuture.completedFuture(Either.right(unloaded))
@@ -62,7 +62,7 @@ public class MixinChunkStatus {
     }
 
     @Unique
-    private static CompletableFuture<Either<Chunk, ChunkHolder.Unloaded>> getPreLightFuture(final ServerLightingProvider lightingProvider, final Chunk chunk) {
+    private static CompletableFuture<Either<IChunk, ChunkHolder.IChunkLoadingError>> getPreLightFuture(final ServerWorldLightManager lightingProvider, final IChunk chunk) {
         return ((ServerLightingProviderAccess) lightingProvider).setupLightmaps(chunk).thenApply(Either::left);
     }
 }

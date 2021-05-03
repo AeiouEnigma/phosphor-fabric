@@ -3,14 +3,14 @@ package me.jellysquid.mods.phosphor.mixin.chunk.light;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import me.jellysquid.mods.phosphor.common.chunk.light.BlockLightStorageAccess;
-import net.minecraft.util.math.ChunkSectionPos;
-import net.minecraft.world.chunk.ChunkNibbleArray;
-import net.minecraft.world.chunk.light.BlockLightStorage;
+import net.minecraft.util.math.SectionPos;
+import net.minecraft.world.chunk.NibbleArray;
+import net.minecraft.world.lighting.BlockLightStorage;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(BlockLightStorage.class)
-public abstract class MixinBlockLightStorage extends MixinLightStorage<BlockLightStorage.Data> implements BlockLightStorageAccess {
+public abstract class MixinBlockLightStorage extends MixinLightStorage<BlockLightStorage.StorageMap> implements BlockLightStorageAccess {
     @Unique
     private final LongSet lightEnabled = new LongOpenHashSet();
 
@@ -25,16 +25,16 @@ public abstract class MixinBlockLightStorage extends MixinLightStorage<BlockLigh
 
     @Override
     public boolean isLightEnabled(final long sectionPos) {
-        return this.lightEnabled.contains(ChunkSectionPos.withZeroY(sectionPos));
+        return this.lightEnabled.contains(SectionPos.toSectionColumnPos(sectionPos));
     }
 
     @Override
-    protected int getLightmapComplexityChange(final long blockPos, final int oldVal, final int newVal, final ChunkNibbleArray lightmap) {
+    protected int getLightmapComplexityChange(final long blockPos, final int oldVal, final int newVal, final NibbleArray lightmap) {
         return newVal - oldVal;
     }
 
     @Override
-    protected int getInitialLightmapComplexity(final long sectionPos, final ChunkNibbleArray lightmap) {
+    protected int getInitialLightmapComplexity(final long sectionPos, final NibbleArray lightmap) {
         int complexity = 0;
 
         for (int y = 0; y < 16; ++y) {

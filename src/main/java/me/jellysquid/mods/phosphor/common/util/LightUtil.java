@@ -1,12 +1,12 @@
 package me.jellysquid.mods.phosphor.common.util;
 
-import net.minecraft.util.function.BooleanBiFunction;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
+import net.minecraft.util.math.shapes.IBooleanFunction;
+import net.minecraft.util.math.shapes.VoxelShape;
+import net.minecraft.util.math.shapes.VoxelShapes;
 
 public class LightUtil {
     /**
-     * Replacement for {@link VoxelShapes#unionCoversFullCube(VoxelShape, VoxelShape)}. This implementation early-exits
+     * Replacement for {@link VoxelShapes#faceShapeCovers(VoxelShape, VoxelShape)}. This implementation early-exits
      * in some common situations to avoid unnecessary computation.
      *
      * @author JellySquid
@@ -36,10 +36,10 @@ public class LightUtil {
         }
 
         // No special optimizations can be performed, so we need to merge both shapes and test them
-        return coversFullCube(VoxelShapes.combine(a, b, BooleanBiFunction.OR));
+        return coversFullCube(VoxelShapes.combine(a, b, IBooleanFunction.OR));
     }
 
     private static boolean coversFullCube(VoxelShape shape) {
-        return !VoxelShapes.matchesAnywhere(VoxelShapes.fullCube(), shape, BooleanBiFunction.ONLY_FIRST);
+        return !VoxelShapes.compare(VoxelShapes.fullCube(), shape, IBooleanFunction.ONLY_FIRST);
     }
 }

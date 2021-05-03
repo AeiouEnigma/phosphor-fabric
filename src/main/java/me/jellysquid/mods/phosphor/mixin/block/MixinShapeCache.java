@@ -2,29 +2,29 @@ package me.jellysquid.mods.phosphor.mixin.block;
 
 import me.jellysquid.mods.phosphor.common.block.BlockStateLightInfo;
 import net.minecraft.block.AbstractBlock;
-import net.minecraft.util.shape.VoxelShape;
+import net.minecraft.util.math.shapes.VoxelShape;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
-@Mixin(AbstractBlock.AbstractBlockState.ShapeCache.class)
+@Mixin(AbstractBlock.AbstractBlockState.Cache.class)
 public class MixinShapeCache implements BlockStateLightInfo {
     @Shadow
     @Final
-    private VoxelShape[] extrudedFaces;
+    private VoxelShape[] renderShapes;
 
     @Shadow
     @Final
-    private int lightSubtracted;
+    private int opacity;
 
     @Override
     public VoxelShape[] getExtrudedFaces() {
-        return this.extrudedFaces;
+        return this.renderShapes;
     }
 
     @Override
     public int getLightSubtracted() {
-        return this.lightSubtracted;
+        return this.opacity;
     }
 
 }

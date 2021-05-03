@@ -80,10 +80,19 @@ tasks.withType(JavaCompile) {
     options.encoding = "UTF-8"
 }
 
+// Include the license in all JAR outputs
+tasks.withType(Jar) {
+    from "LICENSE.txt"
+}
+
 afterEvaluate {
     tasks.withType(JavaCompile) {
         options.compilerArgs << "-Xmaxerrs" << "2000"
     }
+}
+
+jar {
+    from "LICENSE.txt"
 }
 
 // Example for how to get properties into the manifest for reading by the runtime..
